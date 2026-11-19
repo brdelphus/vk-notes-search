@@ -13,10 +13,12 @@ tree for what is fundamentally an embedding call plus a cosine lookup.
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/brdelphus/vk-notes-search.git
+cd vk-notes-search
+./install.sh
 
-python vk.py index
-python vk.py query "nginx serving the wrong site"
+vk index
+vk query "nginx serving the wrong site"
 ```
 
 ```
@@ -29,6 +31,88 @@ Nginx serves the wrong site after a config change
 
 The repo ships with a few example notes so this works on the first run. Delete
 them once you have your own.
+
+## Install
+
+`install.sh` is idempotent — re-run it to upgrade chromadb or refresh the skill.
+
+```bash
+./install.sh                  # `vk` command on PATH
+./install.sh --skill          # + a Hermes Agent skill so the agent uses it
+./install.sh --prefix DIR     # custom wrapper location (default ~/.local/bin)
+./install.sh --uninstall      # remove wrapper, venv and skill — notes untouched
+```
+
+What it does:
+
+1. Finds `python3` (3.9+), refuses to continue without it.
+2. Creates an **isolated venv** in `~/.local/share/vk/venv` and installs
+   `chromadb` there. Your system Python is never touched, and this repo's
+   dependencies cannot collide with anything else you run.
+3. Writes a `~/.local/bin/vk` wrapper pointing at that venv and this checkout.
+4. Warns if `~/.local/bin` is not on `PATH` (and shows the line to add).
+5. Runs a smoke test in a throwaway database, so a broken install fails loudly
+   instead of at your first real query.
+
+Nothing is written outside `~/.local/bin`, `~/.local/share/vk` and — with
+`--skill` — the Hermes skills directory. Your notes and the vector DB cache are
+never removed by `--uninstall`.
+
+### Manual install
+
+If you would rather not run a script:
+
+```bash
+python3 -m venv ~/.local/share/vk/venv
+~/.local/share/vk/venv/bin/pip install -r requirements.txt
+printf '#!/usr/bin/env bash\nexec %s/venv/bin/python %s/vk.py "$@"\n' \
+  "$HOME/.local/share/vk" "$PWD" > ~/.local/bin/vk
+chmod +x ~/.local/bin/vk
+```
+
+## Install in Hermes Agent
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) is an autonomous
+agent framework with a skill system: a `SKILL.md` file teaches the agent when and
+how to use a tool, loaded only when relevant instead of sitting in every prompt.
+
+`./install.sh --skill` drops a ready skill into the running profile:
+
+```
+~/.hermes/profiles/<profile>/skills/knowledge/vk-notes/SKILL.md
+```
+
+(or `~/.hermes/skills/...` if no profile is found). It documents the `sync` →
+`query` flow, how to read the distance values, and the pitfalls — a note absent
+from the top-5 is not a note absent from the index.
+
+Then, in the agent conversation:
+
+```
+> what did I document about the USB audio dropout?
+  [agent runs: vk sync && vk query "usb audio dropout"]
+```
+
+### Making the agent run it automatically
+
+The skill above only fires when the topic matches. To make it a standing rule,
+add a line to the agent's memory or system prompt:
+
+> Before making an infrastructure change, run `vk sync` then `vk query "<topic>"`
+> to recall prior context.
+
+`sync` matters here: it pulls notes written on other machines and reindexes, so
+recall reflects the current knowledge rather than whatever this host happened to
+cache last month.
+
+### Where the skill goes
+
+| Hermes layout | Skill path |
+|---|---|
+| Profiled | `~/.hermes/profiles/<profile>/skills/knowledge/vk-notes/SKILL.md` |
+| Flat | `~/.hermes/skills/knowledge/vk-notes/SKILL.md` |
+
+Skills are discovered at agent startup — restart the session after installing.
 
 ## Commands
 
