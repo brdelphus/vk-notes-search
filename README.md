@@ -118,7 +118,7 @@ Skills are discovered at agent startup — restart the session after installing.
 
 ```
 vk.py sync                      git pull (ff-only) + reindex — run before searching
-vk.py index                     (re)index categorias/**/*.md
+vk.py index                     (re)index notes/**/*.md
 vk.py query "text" [--cat X]    semantic search; --cat filters by category
 vk.py query "text" -n 3         top-N results (default 5)
 vk.py stats                     what is indexed
@@ -127,18 +127,17 @@ vk.py stats                     what is indexed
 ## Layout
 
 ```
-categorias/<category>/<note>.md    your notes — versioned in git
+notes/<category>/<note>.md    your notes — versioned in git
 ~/.cache/vk/                       vector DB — regenerable, never commit
 ```
 
-The category is the first path segment under `categorias/`, so `--cat infra`
-filters to `categorias/infra/*.md`.
+The category is the first path segment under `notes/`, so `--cat infra`
+filters to `notes/infra/*.md`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VK_CATS` | `<repo>/categorias` | where your notes live |
+| `VK_NOTES` | `<repo>/notes` | where your notes live |
 | `VK_DB` | `~/.cache/vk` | where the vector DB lives |
-| `VK_MODEL` | chromadb default | embedding model override |
 
 ---
 
@@ -149,7 +148,7 @@ of `vk.py`.
 
 ## 1. Chunking — one note becomes several vectors
 
-`vk.py index` walks `categorias/**/*.md` and splits each note on markdown
+`vk.py index` walks `notes/**/*.md` and splits each note on markdown
 headings (`^#{1,6}\s`). Each section becomes its own chunk, and the document
 title is prefixed to every chunk so a section never loses the context of the
 note it came from:
@@ -202,7 +201,7 @@ reindexing an unchanged note is idempotent.
 
 ## 3. Storage — one collection, three fields per row
 
-Everything lands in a single chromadb collection named `categorias`, configured
+Everything lands in a single chromadb collection named `notes`, configured
 for **cosine** distance:
 
 ```python
@@ -215,7 +214,7 @@ Each row holds:
 |---|---|---|
 | `ids` | `infra/nginx-wrong-site.md#2` | note path + chunk offset — unique and stable |
 | `documents` | the chunk text | what gets returned |
-| `metadatas` | `{categoria, arquivo, chunk}` | filtering and grouping |
+| `metadatas` | `{category, file, chunk}` | filtering and grouping |
 
 Because the id is derived from the path, re-indexing the same note **upserts**
 rather than duplicating. `index()` also diffs the incoming id set against what
@@ -240,9 +239,9 @@ chunk, and sorted by distance:
 ```python
 best = {}                      # note -> (chunk, distance)
 for doc, meta, dist in results:
-    a = meta["arquivo"]
-    if a not in best or dist < best[a][1]:
-        best[a] = (doc, dist)
+    f = meta["file"]
+    if f not in best or dist < best[f][1]:
+        best[f] = (doc, dist)
 ```
 
 That grouping step is what makes the output feel like search over *notes* rather

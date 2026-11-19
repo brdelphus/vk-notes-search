@@ -43,7 +43,7 @@ if [ "$UNINSTALL" = 1 ]; then
     rm -rf "$(dirname "$f")"                && ok "removed skill $(dirname "$f")"
   done
   echo
-  say "Your notes under categorias/ were NOT touched."
+  say "Your notes under notes/ were NOT touched."
   say "The vector DB cache in ~/.cache/vk was NOT touched — delete it manually if you want."
   exit 0
 fi
@@ -185,7 +185,7 @@ if VK_DB="$SMOKE/db" "$VENV/bin/python" "$REPO/vk.py" index >/dev/null 2>&1; the
   if VK_DB="$SMOKE/db" "$VENV/bin/python" "$REPO/vk.py" query "problem" -n 1 2>/dev/null | grep -q '^###'; then
     ok "query returns results"
   else
-    say "query returned nothing (fine if categorias/ is empty)"
+    say "query returned nothing (fine if notes/ is empty)"
   fi
 else
   err "index failed — check $VENV/bin/python $REPO/vk.py index"
@@ -194,5 +194,5 @@ fi
 
 echo
 echo "done."
-say "add notes under $REPO/categorias/<category>/<note>.md"
+say "add notes under $REPO/notes/<category>/<note>.md"
 say "then: vk index && vk query \"...\""

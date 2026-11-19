@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """vk — a thin semantic-search layer over a folder of markdown notes.
 
-Drop your .md files under `categorias/`, run `index`, then `query` in natural
+Drop your .md files under `notes/`, run `index`, then `query` in natural
 language. Markdown stays the source of truth in git; the vector DB is a
 throwaway cache that can be rebuilt at any time.
 
 Usage:
   vk.py sync                     # git pull (ff-only) + reindex — run before searching
-  vk.py index                    # (re)index categorias/**/*.md
+  vk.py index                    # (re)index notes/**/*.md
   vk.py query "text" [--cat X]   # semantic search; --cat filters by category
   vk.py stats                    # what is indexed
 
 Layout:
-  categorias/<category>/<note>.md   <- your notes (versioned)
-  <cache dir>                       <- vector DB, regenerable, never commit
+  notes/<category>/<note>.md    <- your notes (versioned)
+  <cache dir>                   <- vector DB, regenerable, never commit
 
 CHUNKING (why each note becomes several vectors):
 Every note is split on markdown headings and each section is embedded on its
@@ -40,11 +40,11 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
-CATS = Path(os.environ.get("VK_CATS", REPO / "categorias"))
+NOTES = Path(os.environ.get("VK_NOTES", REPO / "notes"))
 DB = Path(os.environ.get("VK_DB", Path.home() / ".cache" / "vk"))
-MODEL = os.environ.get("VK_MODEL", "")  # empty = chromadb default (all-MiniLM-L6-v2)
 
 MIN_CHUNK = 80  # characters; shorter fragments are heading noise, not content
+COLLECTION = "notes"
 
 import chromadb  # noqa: E402
 
@@ -64,11 +64,11 @@ def sync():
     index()
 
 
-def get_col(client):
-    kwargs = {"metadata": {"hnsw:space": "cosine"}}
-    if MODEL:
-        kwargs["embedding_function"] = None  # caller supplies via MODEL
-    return client.get_or_create_collection("categorias", **kwargs)
+def get_collection(client):
+    return client.get_or_create_collection(
+        COLLECTION,
+        metadata={"hnsw:space": "cosine"},
+    )
 
 
 def chunks_of(text):
@@ -92,15 +92,15 @@ def chunks_of(text):
 
 def index():
     client = chromadb.PersistentClient(path=str(DB))
-    col = get_col(client)
+    col = get_collection(client)
     ids, docs, metas = [], [], []
-    for md in sorted(CATS.rglob("*.md")):
-        rel = md.relative_to(CATS).as_posix()
-        cat = rel.split("/")[0] if "/" in rel else "root"
+    for md in sorted(NOTES.rglob("*.md")):
+        rel = md.relative_to(NOTES).as_posix()
+        category = rel.split("/")[0] if "/" in rel else "root"
         for i, chunk in enumerate(chunks_of(md.read_text(encoding="utf-8"))):
             ids.append(f"{rel}#{i}")
             docs.append(chunk)
-            metas.append({"categoria": cat, "arquivo": rel, "chunk": i})
+            metas.append({"category": category, "file": rel, "chunk": i})
     if docs:
         # drop chunks orphaned by a note that shrank or was deleted
         existing = set(col.get()["ids"])
@@ -108,35 +108,35 @@ def index():
         stale = existing - set(ids)
         if stale:
             col.delete(ids=sorted(stale))
-    nfiles = len({m["arquivo"] for m in metas})
+    nfiles = len({m["file"] for m in metas})
     print(f"indexed: {nfiles} notes in {len(docs)} chunks "
-          f"({len({m['categoria'] for m in metas})} categories)")
+          f"({len({m['category'] for m in metas})} categories)")
 
 
 def query(text, cat=None, n=5):
     client = chromadb.PersistentClient(path=str(DB))
-    col = get_col(client)
-    where = {"categoria": cat} if cat else None
+    col = get_collection(client)
+    where = {"category": cat} if cat else None
     # ask for more than n: several chunks usually land in the same file
     res = col.query(query_texts=[text], n_results=min(n * 4, max(col.count(), 1)), where=where)
     best = {}  # file -> (chunk_text, distance)
     for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
-        a = meta["arquivo"]
-        if a not in best or dist < best[a][1]:
-            best[a] = (doc, dist)
-    for arquivo, (doc, dist) in sorted(best.items(), key=lambda kv: kv[1][1])[:n]:
-        print(f"\n### {arquivo}  (dist {dist:.3f})")
+        name = meta["file"]
+        if name not in best or dist < best[name][1]:
+            best[name] = (doc, dist)
+    for name, (doc, dist) in sorted(best.items(), key=lambda kv: kv[1][1])[:n]:
+        print(f"\n### {name}  (dist {dist:.3f})")
         print(doc.strip()[:600])
 
 
 def stats():
     client = chromadb.PersistentClient(path=str(DB))
-    col = get_col(client)
+    col = get_collection(client)
     got = col.get()
-    files = sorted({m["arquivo"] for m in got["metadatas"]})
+    files = sorted({m["file"] for m in got["metadatas"]})
     print(f"total: {len(got['ids'])} chunks in {len(files)} notes")
     for m in got["metadatas"]:
-        print(f"  {m['categoria']:10s} {m['arquivo']}")
+        print(f"  {m['category']:10s} {m['file']}")
 
 
 def main():
@@ -145,7 +145,7 @@ def main():
     sub.add_parser("sync")
     sub.add_parser("index")
     q = sub.add_parser("query")
-    q.add_argument("texto")
+    q.add_argument("text")
     q.add_argument("--cat", default=None)
     q.add_argument("-n", type=int, default=5)
     sub.add_parser("stats")
@@ -155,7 +155,7 @@ def main():
     elif a.cmd == "index":
         index()
     elif a.cmd == "query":
-        query(a.texto, a.cat, a.n)
+        query(a.text, a.cat, a.n)
     elif a.cmd == "stats":
         stats()
 
