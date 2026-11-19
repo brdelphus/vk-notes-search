@@ -1,0 +1,16 @@
+# vector DB cache is regenerable — never commit it
+.cache/
+*.sqlite3
+*.bin
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
